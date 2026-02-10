@@ -20,9 +20,10 @@ public class StreamClient : MonoBehaviour
     public GameObject landmarkPrefab; 
     public float landmarkScale = 0.04f;
     public float depthMultiplier = 10.0f; 
-    public float zOffset = -0.2f; // Offset to bring closer/push back
+    public Vector3 positionOffset = new Vector3(0, 0, -0.2f); // Offset to bring closer/push back
     public bool usePseudoDepth = true;
     public float depthScale = 2.0f;
+    public bool invertDepth = false;
     public bool mirrorX = true; // Default to true for "Mirror" feel on webcam
     public Transform visualizationRoot; 
     public QuadDisplay quadDisplay;
@@ -34,6 +35,7 @@ public class StreamClient : MonoBehaviour
     private bool dataReceived = false;
     private string latestJsonData = "";
     private List<GameObject> spawnedLandmarks = new List<GameObject>();
+    public List<Landmark> activeLandmarks;
 
     void Start()
     {
@@ -196,7 +198,10 @@ public class StreamClient : MonoBehaviour
             // If size is 1.0 (Close), adj is 0.
             // If size is 0.0 (Far), adj is depthScale.
             if(size > 0.001f) 
-                depthAdjustment = (1.0f - size) * depthScale;
+            {
+                float val = (1.0f - size) * depthScale;
+                depthAdjustment = invertDepth ? -val : val;
+            }
         }
 
         for (int i = 0; i < count; i++)
@@ -236,7 +241,8 @@ public class StreamClient : MonoBehaviour
             // Combine: Offset + Relative Depth + Absolute Pseudo-Depth
             // Quad Back is +Z, Front is -Z. 
             // We want 'Far' to go towards +Z (Into the wall).
-            Vector3 localPos = new Vector3(localX, localY, zOffset + zDepth + depthAdjustment); 
+            Vector3 basePos = new Vector3(localX, localY, zDepth + depthAdjustment); 
+            Vector3 localPos = basePos + positionOffset; 
 
             // Transform local position relative to the Quad into World Space
             if (visualizationRoot != null)
@@ -247,6 +253,12 @@ public class StreamClient : MonoBehaviour
             {
                 obj.transform.position = localPos;
             }
+            
+            // Store the calculated world position into the landmark data
+            lmNorm.worldPosition = obj.transform.position;
         }
+        
+        // Expose the list for other scripts to access
+        activeLandmarks = normalized;
     }
 }

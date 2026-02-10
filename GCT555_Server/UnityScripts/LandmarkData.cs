@@ -9,6 +9,7 @@ public class Landmark
     public float y;
     public float z;
     public float visibility;
+    public Vector3 worldPosition;
 }
 
 [Serializable]
