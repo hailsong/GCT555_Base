@@ -3,6 +3,14 @@ using UnityEngine;
 
 public class StreamManager : MonoBehaviour
 {
+
+    // added by yh:
+    [Header("Raw Depth Scales (per modality)")]
+    public float faceRawDepthScale = 1.0f; // best
+    public float handRawDepthScale = 1000.0f;
+    public float poseRawDepthScale = 1000.0f; // using pose as depth ref is noisy.
+    
+
     [System.Serializable]
     public class WallConfig
     {
@@ -22,10 +30,17 @@ public class StreamManager : MonoBehaviour
         public int poseWebPort = 5000;
         public int handWebPort = 5001;
         public int faceWebPort = 5002;
+
     }
 
     public WallConfig wall1;
     public WallConfig wall2;
+
+    // added by yh:
+    [Header("Depth Fusion Binding")]
+    public UserDepthFusion wall1Fusion;
+    public UserDepthFusion wall2Fusion;
+
     
     public List<StreamClient> activeClients = new List<StreamClient>();
 
@@ -102,8 +117,35 @@ public class StreamManager : MonoBehaviour
         client.usePseudoDepth = globalUsePseudoDepth;
         client.depthScale = globalDepthScale;
         client.positionOffset = globalPositionOffset;
-        client.invertDepth = globalInvertDepth;
+        client.invertPseudoDepth = globalInvertDepth;
         
         activeClients.Add(client);
+
+        // added by yh:
+        // ---- Auto-bind created clients into fusion (if assigned) ----
+        UserDepthFusion fusion = null;
+        if (config == wall1) fusion = wall1Fusion;
+        else if (config == wall2) fusion = wall2Fusion;
+
+        if (fusion != null)
+        {
+            switch (type)
+            {
+                case StreamClient.ClientType.Face:
+                    client.rawDepthScale = faceRawDepthScale;
+                    fusion.face = client;
+                    break;
+                case StreamClient.ClientType.Pose:
+                    client.rawDepthScale = poseRawDepthScale;
+                    fusion.pose = client;
+                    break;
+                case StreamClient.ClientType.Hand:
+                    client.rawDepthScale = handRawDepthScale;
+                    fusion.hand = client;
+                    break;
+            }
+        }
+
+
     }
 }

@@ -10,6 +10,57 @@ public class StreamClient : MonoBehaviour
 {
     public enum ClientType { Pose, Hand, Face }
 
+    // added by yh:[Header("Depth Output (Read-only)")]
+    public float faceDepthTz = 0f;
+    public float poseDepthZ = 0f;
+    public float handDepthZ = 0f;
+
+    public float userDepth = 0f;   // baseline 대비 상대 depth (필터 적용)
+    public bool hasDepth = false;
+
+    [Header("Depth Filtering")]
+    public bool enableDepthFilter = true;
+    [Range(0.01f, 1.0f)] public float depthAlpha = 0.15f;
+    public float depthDeadzone = 0.002f;
+
+    // raw depth 부호(모달리티마다 다를 수 있음) -> "이 클라이언트"에서만 쓰는 토글
+    public bool invertRawDepth = true;
+
+    // 내부 상태
+    private bool depthInitialized = false;
+    private float depthBaseline = 0f;
+
+    [Header("Depth Scale (per modality/client)")]
+    public float rawDepthScale = 1.0f;   // Face=1, Hand=1000, Pose=?? (튜닝)
+
+    private void UpdateDepthFromRaw(float rawDepth)
+    {
+        rawDepth *= rawDepthScale; // 스케일 적용
+
+        float z = invertRawDepth ? -rawDepth : rawDepth;
+
+        if (!depthInitialized)
+        {
+            depthBaseline = z;
+            userDepth = 0f;
+            depthInitialized = true;
+        }
+        else
+        {
+            float delta = z - depthBaseline;
+
+            if (Mathf.Abs(delta - userDepth) < depthDeadzone)
+                delta = userDepth;
+
+            userDepth = enableDepthFilter ? Mathf.Lerp(userDepth, delta, depthAlpha) : delta;
+        }
+
+        hasDepth = true;
+    }
+
+    //
+
+
     [Header("Connection Settings")]
     public string ipAddress = "127.0.0.1";
     public int port = 5050;
@@ -23,7 +74,8 @@ public class StreamClient : MonoBehaviour
     public Vector3 positionOffset = new Vector3(0, 0, -0.2f); // Offset to bring closer/push back
     public bool usePseudoDepth = true;
     public float depthScale = 2.0f;
-    public bool invertDepth = false;
+    //public bool invertDepth = false;
+    public bool invertPseudoDepth = false; // 이름 변경.
     public bool mirrorX = true; // Default to true for "Mirror" feel on webcam
     public Transform visualizationRoot; 
     public QuadDisplay quadDisplay;
@@ -120,44 +172,94 @@ public class StreamClient : MonoBehaviour
         {
             switch (clientType)
             {
+
+                // modified by yh
                 case ClientType.Pose:
+                {
                     PoseData pose = JsonUtility.FromJson<PoseData>(json);
+                    hasDepth = false;
+
                     if (pose != null)
                     {
-                        // Reverting to Hybrid/Normalized Visuals
-                        UpdateHybridVisuals(pose.landmarks, pose.world_landmarks); 
+                        UpdateHybridVisuals(pose.landmarks, pose.world_landmarks);
+
+                        // server에서 depth_z가 항상 들어온다고 가정
+                        poseDepthZ = pose.depth_z;
+
+                        // NaN 방어
+                        if (!float.IsNaN(poseDepthZ))
+                            UpdateDepthFromRaw(poseDepthZ);
                     }
                     break;
+                }
+
+
+
+                // modified by yh
                 case ClientType.Hand:
+                {
                     HandData handData = JsonUtility.FromJson<HandData>(json);
-                    if (handData != null && handData.hands != null)
+                    hasDepth = false;
+
+                    if (handData != null && handData.hands != null && handData.hands.Count > 0)
                     {
+                        // (A) depth: server에서 hand.depth_z를 보낸다고 가정
+                        // 여러 손이면 첫 손 기준(원하면 '가장 가까운 손' 선택 로직 추가 가능)
+                        var h0 = handData.hands[0];
+                        handDepthZ = h0.depth_z;
+                        UpdateDepthFromRaw(handDepthZ);
+
+                        // (B) 시각화(기존처럼 합쳐서)
                         List<Landmark> allNorm = new List<Landmark>();
                         List<Landmark> allWorld = new List<Landmark>();
-                        
-                        foreach(var hand in handData.hands)
+
+                        foreach (var hand in handData.hands)
                         {
-                            allNorm.AddRange(hand.landmarks);
-                             // If world exists, add it, otherwise fill with nulls to stay consistent index-wise
+                            if (hand.landmarks != null) allNorm.AddRange(hand.landmarks);
                             if (hand.world_landmarks != null && hand.world_landmarks.Count > 0)
                                 allWorld.AddRange(hand.world_landmarks);
-                            else
-                                // fill dummy to keep counts synced if mixing (shouldn't happen if server consistent)
-                                for(int i=0; i<hand.landmarks.Count; i++) allWorld.Add(null);
                         }
-                        UpdateHybridVisuals(allNorm, allWorld); 
+
+                        // world count mismatch 방지: 맞을 때만 world 사용
+                        UpdateHybridVisuals(allNorm, (allWorld.Count == allNorm.Count) ? allWorld : null);
                     }
                     break;
+                }
+
+
+                // modified by yh
                 case ClientType.Face:
+                {
                     FaceData faceData = JsonUtility.FromJson<FaceData>(json);
-                    if (faceData != null && faceData.faces != null)
+                    hasDepth = false;
+
+                    if (faceData != null && faceData.faces != null && faceData.faces.Count > 0)
                     {
-                         List<Landmark> allFaces = new List<Landmark>();
-                        foreach(var face in faceData.faces) allFaces.AddRange(face.landmarks);
-                        // Face currently no world landmarks support in this script
-                        UpdateHybridVisuals(allFaces, null); 
+                        var f0 = faceData.faces[0];
+                        if (f0 != null && f0.face_pose != null)
+                        {
+                            faceDepthTz = f0.face_pose.tz;
+                            UpdateDepthFromRaw(faceDepthTz);
+                        }
+
+                        List<Landmark> allFaces = new List<Landmark>();
+                        foreach (var face in faceData.faces)
+                            if (face != null && face.landmarks != null)
+                                allFaces.AddRange(face.landmarks);
+
+                        UpdateHybridVisuals(allFaces, null);
                     }
+                    else
+                    {
+                        // face 끊기면 서서히 원점 복귀(원하면)
+                        userDepth = Mathf.Lerp(userDepth, 0f, 0.05f);
+                        hasDepth = false;
+                    }
+
                     break;
+                }
+
+
             }
         }
         catch (Exception e) { Debug.LogError($"JSON Parse Error: {e.Message}"); }
@@ -200,7 +302,7 @@ public class StreamClient : MonoBehaviour
             if(size > 0.001f) 
             {
                 float val = (1.0f - size) * depthScale;
-                depthAdjustment = invertDepth ? -val : val;
+                depthAdjustment = invertPseudoDepth ? -val : val;
             }
         }
 
