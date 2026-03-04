@@ -2,6 +2,12 @@
 
 This project consists of a Python-based server for motion tracking (Face, Hand, Pose) using MediaPipe, and a Unity-based client for visualization and interaction.
 
+## Concept Diagrams
+
+![Concept Diagram 1](assets/concept.png)
+
+![Concept Diagram 2](assets/concept_2.png)
+
 ## Project Structure
 
 This repository is organized into two main components:
