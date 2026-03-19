@@ -12,11 +12,72 @@ public class Landmark
     public Vector3 worldPosition;
 }
 
+//[Serializable]
+//public class PoseData
+//{
+    //public List<Landmark> landmarks;
+    //public List<Landmark> world_landmarks;
+//}
+
+//[Serializable]
+//public class Hand
+//{
+    //public string handedness;
+    //public List<Landmark> landmarks;
+    //public List<Landmark> world_landmarks;
+//}
+
+[Serializable]
+public class HandData
+{
+    public List<Hand> hands;
+}
+
+//[Serializable]
+//public class Face
+//{
+    //public List<Landmark> landmarks;
+//}
+
+[Serializable]
+public class FaceData
+{
+    public List<Face> faces;
+    // Blendshapes parsing might need a custom parser or different structure depending on JsonUtility limits
+    // but for now we focus on landmarks.
+}
+
+//------------------------------------------------------
+[Serializable]
+public class DepthInfo
+{
+    public string mode;
+    public float global_z;
+    public List<float> per_landmark_z;
+}
+
+[Serializable]
+public class FacePose
+{
+    public float tx;
+    public float ty;
+    public float tz;
+}
+
+[Serializable]
+public class Face
+{
+    public List<Landmark> landmarks;
+    public FacePose face_pose;
+    public DepthInfo depth;
+}
+
 [Serializable]
 public class PoseData
 {
     public List<Landmark> landmarks;
     public List<Landmark> world_landmarks;
+    public DepthInfo depth;
 }
 
 [Serializable]
@@ -25,24 +86,5 @@ public class Hand
     public string handedness;
     public List<Landmark> landmarks;
     public List<Landmark> world_landmarks;
-}
-
-[Serializable]
-public class HandData
-{
-    public List<Hand> hands;
-}
-
-[Serializable]
-public class Face
-{
-    public List<Landmark> landmarks;
-}
-
-[Serializable]
-public class FaceData
-{
-    public List<Face> faces;
-    // Blendshapes parsing might need a custom parser or different structure depending on JsonUtility limits
-    // but for now we focus on landmarks.
+    public DepthInfo depth;
 }

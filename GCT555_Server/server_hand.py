@@ -10,6 +10,19 @@ from flask import Flask, Response
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
+#---------------------------
+from depth_module import DepthConfig, DepthState, build_hand_payloads
+
+depth_state = DepthState(
+    DepthConfig(
+        smoothing_alpha=0.35,
+        pose_invert_world_z=False,
+        clamp_min=-5.0,
+        clamp_max=5.0,
+    )
+)
+#---------------------------
+
 # Configuration
 SOCKET_HOST = '0.0.0.0'
 SOCKET_PORT = 5051
@@ -78,47 +91,55 @@ def socket_server_thread():
                     global current_landmarks_result
                     data_to_send = None
                     
+                    #------------------------------------------
+                    #with lock:
+                        #if current_landmarks_result and current_landmarks_result.hand_landmarks:
+                            #hands_data = []
+                            
+                            #for idx, hand_landmarks in enumerate(current_landmarks_result.hand_landmarks):
+                                #landmarks_list = []
+                                #for lm in hand_landmarks:
+                                    #landmarks_list.append({
+                                        #'x': lm.x,
+                                        #'y': lm.y,
+                                        #'z': lm.z,
+                                        #'visibility': lm.visibility if hasattr(lm, 'visibility') else 1.0
+                                    #})
+                                
+                                #world_landmarks_list = []
+                                #if current_landmarks_result.hand_world_landmarks:
+                                    ## Check if index exists in world landmarks
+                                    #if idx < len(current_landmarks_result.hand_world_landmarks):
+                                        #for lm in current_landmarks_result.hand_world_landmarks[idx]:
+                                            #world_landmarks_list.append({
+                                                #'x': lm.x,
+                                                #'y': lm.y,
+                                                #'z': lm.z,
+                                                #'visibility': lm.visibility if hasattr(lm, 'visibility') else 1.0
+                                            #})
+
+                                #label = "Unknown"
+                                #if current_landmarks_result.handedness:
+                                    ## handedness is a list of lists of categories
+                                    #if idx < len(current_landmarks_result.handedness) and len(current_landmarks_result.handedness[idx]) > 0:
+                                        #label = current_landmarks_result.handedness[idx][0].category_name
+
+                                #hands_data.append({
+                                    #'handedness': label,
+                                    #'landmarks': landmarks_list,
+                                    #'world_landmarks': world_landmarks_list
+                                #})
+                                
+                            #data_to_send = json.dumps({
+                                #'hands': hands_data
+                            #})
                     with lock:
                         if current_landmarks_result and current_landmarks_result.hand_landmarks:
-                            hands_data = []
-                            
-                            for idx, hand_landmarks in enumerate(current_landmarks_result.hand_landmarks):
-                                landmarks_list = []
-                                for lm in hand_landmarks:
-                                    landmarks_list.append({
-                                        'x': lm.x,
-                                        'y': lm.y,
-                                        'z': lm.z,
-                                        'visibility': lm.visibility if hasattr(lm, 'visibility') else 1.0
-                                    })
-                                
-                                world_landmarks_list = []
-                                if current_landmarks_result.hand_world_landmarks:
-                                    # Check if index exists in world landmarks
-                                    if idx < len(current_landmarks_result.hand_world_landmarks):
-                                        for lm in current_landmarks_result.hand_world_landmarks[idx]:
-                                            world_landmarks_list.append({
-                                                'x': lm.x,
-                                                'y': lm.y,
-                                                'z': lm.z,
-                                                'visibility': lm.visibility if hasattr(lm, 'visibility') else 1.0
-                                            })
-
-                                label = "Unknown"
-                                if current_landmarks_result.handedness:
-                                    # handedness is a list of lists of categories
-                                    if idx < len(current_landmarks_result.handedness) and len(current_landmarks_result.handedness[idx]) > 0:
-                                        label = current_landmarks_result.handedness[idx][0].category_name
-
-                                hands_data.append({
-                                    'handedness': label,
-                                    'landmarks': landmarks_list,
-                                    'world_landmarks': world_landmarks_list
-                                })
-                                
+                            hands_data = build_hand_payloads(current_landmarks_result, depth_state)
                             data_to_send = json.dumps({
                                 'hands': hands_data
                             })
+                    #------------------------------------------
                     
                     if data_to_send:
                         client_socket.sendall((data_to_send + "\n").encode('utf-8'))

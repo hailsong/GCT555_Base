@@ -28,6 +28,15 @@ public class StreamClient : MonoBehaviour
     public Transform visualizationRoot; 
     public QuadDisplay quadDisplay;
 
+    //-----------------------------
+    [Header("Depth-based XY Compensation")] 
+    public bool useXYDepthCompensation = true;
+    public float xyDepthCompensationStrength = 1.0f;
+    public bool useAbsGlobalDepthForCompensation = true;
+    public float xyCompensationMinScale = 0.2f;
+    public float xyCompensationMaxScale = 2.0f;
+    //-----------------------------
+
     private TcpClient socket;
     private NetworkStream stream;
     private Thread receiveThread;
@@ -99,7 +108,8 @@ public class StreamClient : MonoBehaviour
                     jsonBuilder.Clear();
                     jsonBuilder.Append(currentStr);
                 }
-                else Thread.Sleep(5);
+                else
+                    Thread.Sleep(100);
             }
             catch (Exception) { isRunning = false; }
         }
@@ -124,47 +134,165 @@ public class StreamClient : MonoBehaviour
                     PoseData pose = JsonUtility.FromJson<PoseData>(json);
                     if (pose != null)
                     {
+                        //--------------------------
                         // Reverting to Hybrid/Normalized Visuals
-                        UpdateHybridVisuals(pose.landmarks, pose.world_landmarks); 
+                        //UpdateHybridVisuals(pose.landmarks, pose.world_landmarks); 
+                        UpdateHybridVisuals(pose.landmarks, pose.world_landmarks, pose.depth);
+                        //--------------------------
+
                     }
                     break;
+
+                //--------------------------
+                //case ClientType.Hand:
+                    //HandData handData = JsonUtility.FromJson<HandData>(json);
+                    //if (handData != null && handData.hands != null)
+                    //{
+                        //List<Landmark> allNorm = new List<Landmark>();
+                        //List<Landmark> allWorld = new List<Landmark>();
+                        
+                        //foreach(var hand in handData.hands)
+                        //{
+                            //allNorm.AddRange(hand.landmarks);
+                             //// If world exists, add it, otherwise fill with nulls to stay consistent index-wise
+                            //if (hand.world_landmarks != null && hand.world_landmarks.Count > 0)
+                                //allWorld.AddRange(hand.world_landmarks);
+                            //else
+                                //// fill dummy to keep counts synced if mixing (shouldn't happen if server consistent)
+                                //for(int i=0; i<hand.landmarks.Count; i++) allWorld.Add(null);
+                        //}
+                        //UpdateHybridVisuals(allNorm, allWorld); 
+                    //}
+                    //break;
                 case ClientType.Hand:
                     HandData handData = JsonUtility.FromJson<HandData>(json);
                     if (handData != null && handData.hands != null)
                     {
                         List<Landmark> allNorm = new List<Landmark>();
                         List<Landmark> allWorld = new List<Landmark>();
-                        
-                        foreach(var hand in handData.hands)
+                        List<float> allDepthZ = new List<float>();
+
+                        float globalZSum = 0f;
+                        int globalZCount = 0;
+
+                        foreach (var hand in handData.hands)
                         {
-                            allNorm.AddRange(hand.landmarks);
-                             // If world exists, add it, otherwise fill with nulls to stay consistent index-wise
+                            if (hand.landmarks != null)
+                                allNorm.AddRange(hand.landmarks);
+
                             if (hand.world_landmarks != null && hand.world_landmarks.Count > 0)
+                            {
                                 allWorld.AddRange(hand.world_landmarks);
-                            else
-                                // fill dummy to keep counts synced if mixing (shouldn't happen if server consistent)
-                                for(int i=0; i<hand.landmarks.Count; i++) allWorld.Add(null);
+                            }
+                            else if (hand.landmarks != null)
+                            {
+                                for (int i = 0; i < hand.landmarks.Count; i++) allWorld.Add(null);
+                            }
+
+                            if (hand.depth != null)
+                            {
+                                globalZSum += hand.depth.global_z;
+                                globalZCount++;
+
+                                if (hand.depth.per_landmark_z != null && hand.depth.per_landmark_z.Count > 0)
+                                {
+                                    allDepthZ.AddRange(hand.depth.per_landmark_z);
+                                }
+                                else if (hand.landmarks != null)
+                                {
+                                    for (int i = 0; i < hand.landmarks.Count; i++) allDepthZ.Add(0f);
+                                }
+                            }
+                            else if (hand.landmarks != null)
+                            {
+                                for (int i = 0; i < hand.landmarks.Count; i++) allDepthZ.Add(0f);
+                            }
                         }
-                        UpdateHybridVisuals(allNorm, allWorld); 
+
+                        DepthInfo mergedDepth = new DepthInfo();
+                        mergedDepth.mode = "hand_world";
+                        mergedDepth.global_z = (globalZCount > 0) ? (globalZSum / globalZCount) : 0f;
+                        mergedDepth.per_landmark_z = allDepthZ;
+
+                        UpdateHybridVisuals(allNorm, allWorld, mergedDepth);
                     }
                     break;
+                //--------------------------
+
+                //--------------------------
+                //case ClientType.Face:
+                    //FaceData faceData = JsonUtility.FromJson<FaceData>(json);
+                    //if (faceData != null && faceData.faces != null)
+                    //{
+                         //List<Landmark> allFaces = new List<Landmark>();
+                        //foreach(var face in faceData.faces) allFaces.AddRange(face.landmarks);
+                        //// Face currently no world landmarks support in this script
+                        //UpdateHybridVisuals(allFaces, null); 
+                    //}
+                    //break;
                 case ClientType.Face:
                     FaceData faceData = JsonUtility.FromJson<FaceData>(json);
                     if (faceData != null && faceData.faces != null)
                     {
-                         List<Landmark> allFaces = new List<Landmark>();
-                        foreach(var face in faceData.faces) allFaces.AddRange(face.landmarks);
-                        // Face currently no world landmarks support in this script
-                        UpdateHybridVisuals(allFaces, null); 
+                        List<Landmark> allFaces = new List<Landmark>();
+                        List<float> allDepthZ = new List<float>();
+
+                        float globalZSum = 0f;
+                        int globalZCount = 0;
+
+                        foreach (var face in faceData.faces)
+                        {
+                            if (face.landmarks != null)
+                                allFaces.AddRange(face.landmarks);
+
+                            if (face.depth != null)
+                            {
+                                globalZSum += face.depth.global_z;
+                                globalZCount++;
+
+                                if (face.depth.per_landmark_z != null && face.depth.per_landmark_z.Count > 0)
+                                {
+                                    allDepthZ.AddRange(face.depth.per_landmark_z);
+                                }
+                                else if (face.landmarks != null)
+                                {
+                                    for (int i = 0; i < face.landmarks.Count; i++) allDepthZ.Add(0f);
+                                }
+                            }
+                            else if (face.landmarks != null)
+                            {
+                                for (int i = 0; i < face.landmarks.Count; i++) allDepthZ.Add(0f);
+                            }
+                        }
+
+                        DepthInfo mergedDepth = new DepthInfo();
+                        mergedDepth.mode = "face_transform_plus_local";
+                        mergedDepth.global_z = (globalZCount > 0) ? (globalZSum / globalZCount) : 0f;
+                        mergedDepth.per_landmark_z = allDepthZ;
+
+                        UpdateHybridVisuals(allFaces, null, mergedDepth);
                     }
                     break;
+                //--------------------------
             }
         }
         catch (Exception e) { Debug.LogError($"JSON Parse Error: {e.Message}"); }
     }
 
-    private void UpdateHybridVisuals(List<Landmark> normalized, List<Landmark> world)
+    //--------------------------------------
+    //private void UpdateHybridVisuals(List<Landmark> normalized, List<Landmark> world)
+    private void UpdateHybridVisuals(List<Landmark> normalized, List<Landmark> world, DepthInfo depthInfo = null)
+    //--------------------------------------
     {
+
+        if (normalized == null || normalized.Count == 0)
+        {
+            Debug.LogWarning($"[{clientType}] normalized landmarks are empty");
+            for (int i = 0; i < spawnedLandmarks.Count; i++) spawnedLandmarks[i].SetActive(false);
+            return;
+        }
+
+
         // Check availability
         bool useWorld = (world != null && world.Count == normalized.Count && world.Count > 0 && world[0] != null);
         
@@ -204,6 +332,40 @@ public class StreamClient : MonoBehaviour
             }
         }
 
+        //-------------------------------------
+        float centerX = 0f;
+        float centerY = 0f;
+
+        for (int i = 0; i < count; i++)
+        {
+            centerX += normalized[i].x;
+            centerY += normalized[i].y;
+        }
+
+        if (count > 0)
+        {
+            centerX /= count;
+            centerY /= count;
+        }
+        else
+        {
+            centerX = 0.5f;
+            centerY = 0.5f;
+        }
+        float globalDepth = 0f;
+        if (depthInfo != null)
+            globalDepth = depthInfo.global_z;
+
+        float depthForScale = useAbsGlobalDepthForCompensation ? Mathf.Abs(globalDepth) : globalDepth;
+
+        // depth가 커질수록 XY 분포를 줄이는 방향
+        float xyScaleCompensation = 1.0f / (1.0f + depthForScale * xyDepthCompensationStrength);
+        xyScaleCompensation = Mathf.Clamp(xyScaleCompensation, xyCompensationMinScale, xyCompensationMaxScale);
+
+        if (!useXYDepthCompensation)
+            xyScaleCompensation = 1.0f;
+        //-------------------------------------
+
         for (int i = 0; i < count; i++)
         {
             GameObject obj = spawnedLandmarks[i];
@@ -214,29 +376,68 @@ public class StreamClient : MonoBehaviour
             
             if (quadDisplay == null) continue;
 
+            //----------------------------------------
             // 1. Get Base Position on Quad surface from Normalized XY
             // Flip Y for Unity (Top is +0.5)
             // Mirror X if requested
-            float localX = mirrorX ? -(lmNorm.x - 0.5f) : (lmNorm.x - 0.5f);
-            float localY = -(lmNorm.y - 0.5f);
+
+            //float localX = mirrorX ? -(lmNorm.x - 0.5f) : (lmNorm.x - 0.5f);
+            //float localY = -(lmNorm.y - 0.5f);
+
+            float centeredX = lmNorm.x - centerX;
+            float centeredY = lmNorm.y - centerY;
+
+            // depth 기반으로 landmark 분포를 축소
+            centeredX *= xyScaleCompensation;
+            centeredY *= xyScaleCompensation;
+
+            // 다시 중심점 기준으로 복원
+            float compensatedX = centerX + centeredX;
+            float compensatedY = centerY + centeredY;
+
+            // Unity quad local coordinates
+            float localX = mirrorX ? -(compensatedX - 0.5f) : (compensatedX - 0.5f);
+            float localY = -(compensatedY - 0.5f);
+            //----------------------------------------
             
             // 2. Depth
             // If we have World Data, use the Z from World Data (scaled).
             // If not, use Normalized Z (which is relative depth).
             
+            //--------------------------------------------------
+            //float zDepth = 0;
+            //if (useWorld)
+            //{
+                //// World Z is in meters. MP Negative Z is "Towards Camera".
+                //// Unity Quad Local Z- is "Front/Towards Camera".
+                //// So MP Z should map directly to Local Z (proportional).
+                //zDepth = world[i].z * depthMultiplier; 
+            //}
+            //else
+            //{
+                //// Normalized Z is also roughly scale-relative.
+                 //zDepth = lmNorm.z * 0.5f * depthMultiplier; 
+            //}
+
             float zDepth = 0;
-            if (useWorld)
+
+            bool useDepthPacket = (depthInfo != null &&
+                                depthInfo.per_landmark_z != null &&
+                                i < depthInfo.per_landmark_z.Count);
+
+            if (useDepthPacket)
             {
-                // World Z is in meters. MP Negative Z is "Towards Camera".
-                // Unity Quad Local Z- is "Front/Towards Camera".
-                // So MP Z should map directly to Local Z (proportional).
-                zDepth = world[i].z * depthMultiplier; 
+                zDepth = depthInfo.per_landmark_z[i] * depthMultiplier;
+            }
+            else if (useWorld && world[i] != null)
+            {
+                zDepth = world[i].z * depthMultiplier;
             }
             else
             {
-                // Normalized Z is also roughly scale-relative.
-                 zDepth = lmNorm.z * 0.5f * depthMultiplier; 
+                zDepth = lmNorm.z * 0.5f * depthMultiplier;
             }
+            //--------------------------------------------------
             
             // Combine: Offset + Relative Depth + Absolute Pseudo-Depth
             // Quad Back is +Z, Front is -Z. 

@@ -31,8 +31,8 @@ public class StreamManager : MonoBehaviour
 
     [Header("Visualization Gloabl Settings")]
     public float globalLandmarkScale = 0.04f;
-    public float globalDepthMultiplier = 10.0f;
-    public bool globalUsePseudoDepth = true;
+    public float globalDepthMultiplier = 20.0f; 
+    public bool globalUsePseudoDepth = false;
     public float globalDepthScale = 2.0f; // Scale for distance estimation
     public Vector3 globalPositionOffset = new Vector3(0, 0, -0.2f);
     public bool globalInvertDepth = false;
@@ -97,7 +97,6 @@ public class StreamManager : MonoBehaviour
         // Apply Global Settings
         client.landmarkScale = globalLandmarkScale;
         client.depthMultiplier = globalDepthMultiplier;
-        client.usePseudoDepth = globalUsePseudoDepth;
 
         client.usePseudoDepth = globalUsePseudoDepth;
         client.depthScale = globalDepthScale;

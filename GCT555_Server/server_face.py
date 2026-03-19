@@ -10,6 +10,24 @@ from flask import Flask, Response
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
+
+#---------------------------
+from depth_module import DepthConfig, DepthState, build_face_payloads
+
+depth_state = DepthState(
+    DepthConfig(
+        smoothing_alpha=0.30,
+        face_global_scale=1.0,
+        face_local_scale=0.12,
+        face_invert_tz=False,       # Unity에서 가까워질수록 반대로 가면 True로 바꾸기
+        face_invert_local_z=False,  # 코가 뒤로 들어가 보이면 True 시도
+        clamp_min=-5.0,
+        clamp_max=5.0,
+    )
+)
+#---------------------------
+
+
 # Configuration
 SOCKET_HOST = '0.0.0.0'
 SOCKET_PORT = 5052
@@ -58,25 +76,43 @@ def socket_server_thread():
                     global current_landmarks_result
                     data_to_send = None
                     
+                    #------------------------------------------------
+                    #with lock:
+                        #if current_landmarks_result and current_landmarks_result.face_landmarks:
+                            #faces_data = []
+                            #for face_landmarks in current_landmarks_result.face_landmarks:
+                                #landmarks_list = []
+                                #for lm in face_landmarks:
+                                    #landmarks_list.append({
+                                        #'x': lm.x,
+                                        #'y': lm.y,
+                                        #'z': lm.z,
+                                        #'visibility': lm.visibility if hasattr(lm, 'visibility') else 1.0
+                                    #})
+                                #faces_data.append({'landmarks': landmarks_list})
+                            
+                            ## Also Blendshapes if available
+                            #blendshapes_data = []
+                            #if current_landmarks_result.face_blendshapes:
+                                #for face_blendshapes in current_landmarks_result.face_blendshapes:
+                                    ## face_blendshapes is a list of categories
+                                    #shapes = {}
+                                    #for category in face_blendshapes:
+                                        #shapes[category.category_name] = category.score
+                                    #blendshapes_data.append(shapes)
+
+                            #data_to_send = json.dumps({
+                                #'faces': faces_data,
+                                #'blendshapes': blendshapes_data
+                            #})
+                    
                     with lock:
                         if current_landmarks_result and current_landmarks_result.face_landmarks:
-                            faces_data = []
-                            for face_landmarks in current_landmarks_result.face_landmarks:
-                                landmarks_list = []
-                                for lm in face_landmarks:
-                                    landmarks_list.append({
-                                        'x': lm.x,
-                                        'y': lm.y,
-                                        'z': lm.z,
-                                        'visibility': lm.visibility if hasattr(lm, 'visibility') else 1.0
-                                    })
-                                faces_data.append({'landmarks': landmarks_list})
-                            
-                            # Also Blendshapes if available
+                            faces_data, raw_pose_debug = build_face_payloads(current_landmarks_result, depth_state)
+
                             blendshapes_data = []
                             if current_landmarks_result.face_blendshapes:
                                 for face_blendshapes in current_landmarks_result.face_blendshapes:
-                                    # face_blendshapes is a list of categories
                                     shapes = {}
                                     for category in face_blendshapes:
                                         shapes[category.category_name] = category.score
@@ -84,8 +120,10 @@ def socket_server_thread():
 
                             data_to_send = json.dumps({
                                 'faces': faces_data,
-                                'blendshapes': blendshapes_data
+                                'blendshapes': blendshapes_data,
+                                'depth_debug': raw_pose_debug
                             })
+                    #------------------------------------------------
                     
                     if data_to_send:
                         client_socket.sendall((data_to_send + "\n").encode('utf-8'))

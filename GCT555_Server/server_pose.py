@@ -12,6 +12,19 @@ from mediapipe.tasks.python import vision
 from mediapipe.tasks.python.vision import drawing_utils
 from mediapipe.tasks.python.vision import drawing_styles
 
+#---------------------------
+from depth_module import DepthConfig, DepthState, build_pose_payload
+
+depth_state = DepthState(
+    DepthConfig(
+        smoothing_alpha=0.35,
+        pose_invert_world_z=False,
+        clamp_min=-5.0,
+        clamp_max=5.0,
+    )
+)
+#---------------------------
+
 # Configuration
 SOCKET_HOST = '0.0.0.0'
 SOCKET_PORT = 5050
@@ -68,40 +81,48 @@ def socket_server_thread():
                     global current_landmarks_result
                     data_to_send = None
                     
+                    #---------------------------------
+                    #with lock:
+                        #if current_landmarks_result and current_landmarks_result.pose_landmarks:
+                            ## Typically there's one pose, so we take the first list of landmarks
+                            #pose_landmarks = current_landmarks_result.pose_landmarks[0]
+                            
+                            #landmarks_list = []
+                            #for lm in pose_landmarks:
+                                #landmarks_list.append({
+                                    #'x': lm.x,
+                                    #'y': lm.y,
+                                    #'z': lm.z,
+                                    #'visibility': lm.visibility
+                                #})
+                            
+                            ## Also include world landmarks if needed?
+                            ## Unity usually wants normalized landmarks for 2D overlay or world landmarks for 3D?
+                            ## For "3D skeleton coordinates", pose_world_landmarks is better if available,
+                            ## but the standard pose_landmarks are normalized [0,1].
+                            ## detection_result.pose_world_landmarks provides meters-based coordinates.
+                            
+                            #world_landmarks_list = []
+                            #if current_landmarks_result.pose_world_landmarks:
+                                #for lm in current_landmarks_result.pose_world_landmarks[0]:
+                                    #world_landmarks_list.append({
+                                        #'x': lm.x,
+                                        #'y': lm.y,
+                                        #'z': lm.z,
+                                        #'visibility': lm.visibility
+                                    #})
+
+                            #data_to_send = json.dumps({
+                                #'landmarks': landmarks_list,
+                                #'world_landmarks': world_landmarks_list
+                            #})
+                    
                     with lock:
                         if current_landmarks_result and current_landmarks_result.pose_landmarks:
-                            # Typically there's one pose, so we take the first list of landmarks
-                            pose_landmarks = current_landmarks_result.pose_landmarks[0]
-                            
-                            landmarks_list = []
-                            for lm in pose_landmarks:
-                                landmarks_list.append({
-                                    'x': lm.x,
-                                    'y': lm.y,
-                                    'z': lm.z,
-                                    'visibility': lm.visibility
-                                })
-                            
-                            # Also include world landmarks if needed?
-                            # Unity usually wants normalized landmarks for 2D overlay or world landmarks for 3D?
-                            # For "3D skeleton coordinates", pose_world_landmarks is better if available,
-                            # but the standard pose_landmarks are normalized [0,1].
-                            # detection_result.pose_world_landmarks provides meters-based coordinates.
-                            
-                            world_landmarks_list = []
-                            if current_landmarks_result.pose_world_landmarks:
-                                for lm in current_landmarks_result.pose_world_landmarks[0]:
-                                    world_landmarks_list.append({
-                                        'x': lm.x,
-                                        'y': lm.y,
-                                        'z': lm.z,
-                                        'visibility': lm.visibility
-                                    })
-
-                            data_to_send = json.dumps({
-                                'landmarks': landmarks_list,
-                                'world_landmarks': world_landmarks_list
-                            })
+                            pose_payload = build_pose_payload(current_landmarks_result, depth_state, pose_index=0)
+                            if pose_payload is not None:
+                                data_to_send = json.dumps(pose_payload)
+                    #---------------------------------
                     
                     if data_to_send:
                         # Send data followed by a newline as a delimiter
